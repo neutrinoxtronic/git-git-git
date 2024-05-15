@@ -2,6 +2,7 @@
 #define REFS_REFS_INTERNAL_H
 
 #include "refs.h"
+#include "strbuf.h"
 #include "iterator.h"
 
 struct ref_transaction;
@@ -319,6 +320,7 @@ enum do_for_each_ref_flags {
 struct ref_iterator {
 	struct ref_iterator_vtable *vtable;
 	const char *refname;
+	struct strbuf *referent;
 	const struct object_id *oid;
 	unsigned int flags;
 };

@@ -8,6 +8,8 @@
 #include "refs/refs-internal.h"
 #include "iterator.h"
 
+struct strbuf sb = STRBUF_INIT;
+
 int ref_iterator_advance(struct ref_iterator *ref_iterator)
 {
 	return ref_iterator->vtable->advance(ref_iterator);
@@ -29,6 +31,7 @@ void base_ref_iterator_init(struct ref_iterator *iter,
 {
 	iter->vtable = vtable;
 	iter->refname = NULL;
+	iter->referent = &sb;
 	iter->oid = NULL;
 	iter->flags = 0;
 }
@@ -199,6 +202,7 @@ static int merge_ref_iterator_advance(struct ref_iterator *ref_iterator)
 		}
 
 		if (selection & ITER_YIELD_CURRENT) {
+			iter->base.referent = (*iter->current)->referent;
 			iter->base.refname = (*iter->current)->refname;
 			iter->base.oid = (*iter->current)->oid;
 			iter->base.flags = (*iter->current)->flags;
@@ -448,7 +452,7 @@ int do_for_each_repo_ref_iterator(struct repository *r, struct ref_iterator *ite
 
 	current_ref_iter = iter;
 	while ((ok = ref_iterator_advance(iter)) == ITER_OK) {
-		retval = fn(r, iter->refname, iter->oid, iter->flags, cb_data);
+		retval = fn(r, iter->refname, iter->referent->buf, iter->oid, iter->flags, cb_data);
 		if (retval) {
 			/*
 			 * If ref_iterator_abort() returns ITER_ERROR,

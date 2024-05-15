@@ -379,7 +379,7 @@ char *refs_resolve_refdup(struct ref_store *refs,
 {
 	const char *result;
 
-	result = refs_resolve_ref_unsafe(refs, refname, resolve_flags,
+	result = refs_resolve_ref_unsafe(refs, refname, NULL, resolve_flags,
 					 oid, flags);
 	return xstrdup_or_null(result);
 }
@@ -404,7 +404,7 @@ int read_ref_full(const char *refname, int resolve_flags, struct object_id *oid,
 {
 	struct ref_store *refs = get_main_ref_store(the_repository);
 
-	if (refs_resolve_ref_unsafe(refs, refname, resolve_flags,
+	if (refs_resolve_ref_unsafe(refs, refname, NULL, resolve_flags,
 				    oid, flags))
 		return 0;
 	return -1;
@@ -417,7 +417,7 @@ int read_ref(const char *refname, struct object_id *oid)
 
 int refs_ref_exists(struct ref_store *refs, const char *refname)
 {
-	return !!refs_resolve_ref_unsafe(refs, refname, RESOLVE_REF_READING,
+	return !!refs_resolve_ref_unsafe(refs, refname, NULL, RESOLVE_REF_READING,
 					 NULL, NULL);
 }
 
@@ -426,7 +426,7 @@ int ref_exists(const char *refname)
 	return refs_ref_exists(get_main_ref_store(the_repository), refname);
 }
 
-static int for_each_filter_refs(const char *refname,
+static int for_each_filter_refs(const char *refname, const char *referent,
 				const struct object_id *oid,
 				int flags, void *data)
 {
@@ -436,7 +436,7 @@ static int for_each_filter_refs(const char *refname,
 		return 0;
 	if (filter->prefix)
 		skip_prefix(refname, filter->prefix, &refname);
-	return filter->fn(refname, oid, flags, filter->cb_data);
+	return filter->fn(refname, referent, oid, flags, filter->cb_data);
 }
 
 enum peel_status peel_object(const struct object_id *name, struct object_id *oid)
@@ -467,7 +467,7 @@ struct warn_if_dangling_data {
 	const char *msg_fmt;
 };
 
-static int warn_if_dangling_symref(const char *refname,
+static int warn_if_dangling_symref(const char *refname, const char *referent UNUSED,
 				   const struct object_id *oid UNUSED,
 				   int flags, void *cb_data)
 {
@@ -551,7 +551,7 @@ int head_ref_namespaced(each_ref_fn fn, void *cb_data)
 
 	strbuf_addf(&buf, "%sHEAD", get_git_namespace());
 	if (!read_ref_full(buf.buf, RESOLVE_REF_READING, &oid, &flag))
-		ret = fn(buf.buf, &oid, flag, cb_data);
+		ret = fn(buf.buf, "HEAD", &oid, flag, cb_data);
 	strbuf_release(&buf);
 
 	return ret;
@@ -773,7 +773,7 @@ int expand_ref(struct repository *repo, const char *str, int len,
 		this_result = refs_found ? &oid_from_ref : oid;
 		strbuf_reset(&fullref);
 		strbuf_addf(&fullref, *p, len, str);
-		r = refs_resolve_ref_unsafe(refs, fullref.buf,
+		r = refs_resolve_ref_unsafe(refs, fullref.buf, NULL,
 					    RESOLVE_REF_READING,
 					    this_result, &flag);
 		if (r) {
@@ -807,7 +807,7 @@ int repo_dwim_log(struct repository *r, const char *str, int len,
 
 		strbuf_reset(&path);
 		strbuf_addf(&path, *p, len, str);
-		ref = refs_resolve_ref_unsafe(refs, path.buf,
+		ref = refs_resolve_ref_unsafe(refs, path.buf, NULL,
 					      RESOLVE_REF_READING,
 					      oid ? &hash : NULL, NULL);
 		if (!ref)
@@ -876,7 +876,7 @@ int is_pseudoref(struct ref_store *refs, const char *refname)
 		return 0;
 
 	if (ends_with(refname, "_HEAD")) {
-		refs_resolve_ref_unsafe(refs, refname,
+		refs_resolve_ref_unsafe(refs, refname, NULL,
 					RESOLVE_REF_READING | RESOLVE_REF_NO_RECURSE,
 					&oid, NULL);
 		return !is_null_oid(&oid);
@@ -884,7 +884,7 @@ int is_pseudoref(struct ref_store *refs, const char *refname)
 
 	for (i = 0; i < ARRAY_SIZE(irregular_pseudorefs); i++)
 		if (!strcmp(refname, irregular_pseudorefs[i])) {
-			refs_resolve_ref_unsafe(refs, refname,
+			refs_resolve_ref_unsafe(refs, refname, NULL,
 						RESOLVE_REF_READING | RESOLVE_REF_NO_RECURSE,
 						&oid, NULL);
 			return !is_null_oid(&oid);
@@ -1590,9 +1590,9 @@ int refs_head_ref(struct ref_store *refs, each_ref_fn fn, void *cb_data)
 	struct object_id oid;
 	int flag;
 
-	if (refs_resolve_ref_unsafe(refs, "HEAD", RESOLVE_REF_READING,
+	if (refs_resolve_ref_unsafe(refs, "HEAD", NULL, RESOLVE_REF_READING,
 				    &oid, &flag))
-		return fn("HEAD", &oid, flag, cb_data);
+		return fn("HEAD", NULL, &oid, flag, cb_data);
 
 	return 0;
 }
@@ -1664,13 +1664,14 @@ struct do_for_each_ref_help {
 
 static int do_for_each_ref_helper(struct repository *r UNUSED,
 				  const char *refname,
+				  const char *referent,
 				  const struct object_id *oid,
 				  int flags,
 				  void *cb_data)
 {
 	struct do_for_each_ref_help *hp = cb_data;
 
-	return hp->fn(refname, oid, flags, hp->cb_data);
+	return hp->fn(refname, referent, oid, flags, hp->cb_data);
 }
 
 static int do_for_each_ref(struct ref_store *refs, const char *prefix,
@@ -1928,6 +1929,7 @@ int refs_read_symbolic_ref(struct ref_store *ref_store, const char *refname,
 
 const char *refs_resolve_ref_unsafe(struct ref_store *refs,
 				    const char *refname,
+				    struct strbuf *referent,
 				    int resolve_flags,
 				    struct object_id *oid,
 				    int *flags)
@@ -1989,6 +1991,11 @@ const char *refs_resolve_ref_unsafe(struct ref_store *refs,
 		}
 
 		*flags |= read_flags;
+		if (referent && !referent->len && (read_flags & REF_ISSYMREF) &&
+		    sb_refname.len > 0) {
+			strbuf_reset(referent);
+			strbuf_addbuf(referent, &sb_refname);
+		}
 
 		if (!(read_flags & REF_ISSYMREF)) {
 			if (*flags & REF_BAD_NAME) {
@@ -2024,7 +2031,7 @@ int refs_init_db(struct ref_store *refs, int flags, struct strbuf *err)
 const char *resolve_ref_unsafe(const char *refname, int resolve_flags,
 			       struct object_id *oid, int *flags)
 {
-	return refs_resolve_ref_unsafe(get_main_ref_store(the_repository), refname,
+	return refs_resolve_ref_unsafe(get_main_ref_store(the_repository), refname, NULL,
 				       resolve_flags, oid, flags);
 }
 
@@ -2039,7 +2046,7 @@ int resolve_gitlink_ref(const char *submodule, const char *refname,
 	if (!refs)
 		return -1;
 
-	if (!refs_resolve_ref_unsafe(refs, refname, 0, oid, &flags) ||
+	if (!refs_resolve_ref_unsafe(refs, refname, NULL, 0, oid, &flags) ||
 	    is_null_oid(oid))
 		return -1;
 	return 0;
@@ -2562,6 +2569,7 @@ struct do_for_each_reflog_help {
 
 static int do_for_each_reflog_helper(struct repository *r UNUSED,
 				     const char *refname,
+				     const char *referent,
 				     const struct object_id *oid UNUSED,
 				     int flags,
 				     void *cb_data)
